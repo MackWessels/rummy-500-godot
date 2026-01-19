@@ -1,0 +1,12 @@
+# Godot 4 cache
+godot/.godot/
+godot/.import/
+
+# Godot export files
+godot/export.cfg
+godot/export_presets.cfg
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+.vscode/
