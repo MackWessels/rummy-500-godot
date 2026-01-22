@@ -1,11 +1,18 @@
-extends Node
 
+extends RefCounted
+class_name GameState
 
-# Called when the node enters the scene tree for the first time.
-func _ready() -> void:
-	pass # Replace with function body.
+var num_players: int = 0
+var hands: Array = []       # Array[Array[String]] CardIDs per player
+var stock: Array = []       # Array[String]
+var discard: Array = []     # Array[String], fully visible
+var turn_player: int = 0
+var phase: String = "DRAW"  # "DRAW" -> "MELD" -> "DISCARD"
 
-
-# Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta: float) -> void:
-	pass
+func debug_summary() -> String:
+	var hand_sizes := []
+	for h in hands:
+		hand_sizes.append(h.size())
+	return "players=%s hand_sizes=%s stock=%s discard=%s turn=%s phase=%s" % [
+		num_players, hand_sizes, stock.size(), discard.size(), turn_player, phase
+	]
