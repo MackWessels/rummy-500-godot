@@ -8,8 +8,8 @@ static func deal_count(num_players: int) -> int:
 
 static func deck_count(num_players: int) -> int:
 	if num_players > 2:
-		return 1
-	return 2
+		return 2
+	return 1
 
 static func create_game(num_players: int, registry: CardRegistry) -> GameState:
 	var state = GameState.new()

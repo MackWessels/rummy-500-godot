@@ -12,12 +12,14 @@ func _ready() -> void:
 
 func _assert_true(cond: bool, label: String) -> void:
 	if not cond:
+		print("FAIL:", label)
 		push_error("ASSERT FAIL: " + label)
 	else:
 		print("OK:", label)
 
 func _assert_eq(a, b, label: String) -> void:
 	if a != b:
+		print("FAIL:", label, " (got=", a, " expected=", b, ")")
 		push_error("ASSERT FAIL: %s (got=%s expected=%s)" % [label, str(a), str(b)])
 	else:
 		print("OK:", label)
