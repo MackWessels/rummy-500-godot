@@ -1,12 +1,12 @@
 extends RefCounted
 class_name MeldRules
 
-const TYPE_SET := "SET"
-const TYPE_RUN := "RUN"
+const TYPE_SET = "SET"
+const TYPE_RUN = "RUN"
 
-const ACE_UNSET := "UNSET"
-const ACE_LOW := "LOW"
-const ACE_HIGH := "HIGH"
+const ACE_UNSET = "UNSET"
+const ACE_LOW = "LOW"
+const ACE_HIGH = "HIGH"
 
 static func inc_rank(r: int) -> int:
 	return (r % 13) + 1
@@ -94,10 +94,10 @@ static func build_run_meld(card_ids: Array, registry: CardRegistry) -> Dictionar
 	var rank_to_id: Dictionary = {} # rank -> card_id
 	var ranks: Array = []
 	for cid in card_ids:
-		var c := registry.get_card(cid)
+		var c = registry.get_card(cid)
 		if String(c["suit"]) != suit:
 			return {"ok": false, "reason": "RUN needs same suit"}
-		var r := int(c["rank"])
+		var r = int(c["rank"])
 		if rank_to_id.has(r):
 			return {"ok": false, "reason": "RUN cannot contain duplicate rank in same suit"}
 		rank_to_id[r] = String(cid)
@@ -155,8 +155,8 @@ static func can_extend_run_end(run_meld: Dictionary, card_id: String, end: Strin
 		if int(registry.get_card(String(existing_id))["rank"]) == new_rank:
 			return {"ok": false, "reason": "Run already has that rank"}
 	
-	var left_rank := int(registry.get_card(String(cards[0]))["rank"])
-	var right_rank := int(registry.get_card(String(cards[cards.size() - 1]))["rank"])
+	var left_rank = int(registry.get_card(String(cards[0]))["rank"])
+	var right_rank = int(registry.get_card(String(cards[cards.size() - 1]))["rank"])
 	
 	# Must extend an end
 	if end == "LEFT":
