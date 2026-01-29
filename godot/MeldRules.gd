@@ -4,6 +4,7 @@ class_name MeldRules
 const TYPE_SET := "SET"
 const TYPE_RUN := "RUN"
 
+const ACE_UNSET := "UNSET"
 const ACE_LOW := "LOW"
 const ACE_HIGH := "HIGH"
 
@@ -133,3 +134,59 @@ static func build_run_meld(card_ids: Array, registry: CardRegistry) -> Dictionar
 		"ace_mode": ace_mode,
 		"ordered_card_ids": ordered_card_ids
 	}
+
+static func can_extend_run_end(run_meld: Dictionary, card_id: String, end: String, registry: CardRegistry) -> Dictionary:
+	# Returns {"ok":bool, "reason":String, "new_ace_mode":String}
+	if String(run_meld.get("type", "")) != TYPE_RUN:
+		return {"ok": false, "reason": "Not a run"}
+	
+	var cards: Array = run_meld["cards"]
+	var suit := String(run_meld["suit"])
+	var ace_mode := String(run_meld["ace_mode"])
+	
+	var c := registry.get_card(card_id)
+	if String(c["suit"]) != suit:
+		return {"ok": false, "reason": "Wrong suit for this run"}
+	
+	var new_rank := int(c["rank"])
+	
+	# Disallow duplicate rank in run
+	for existing_id in cards:
+		if int(registry.get_card(String(existing_id))["rank"]) == new_rank:
+			return {"ok": false, "reason": "Run already has that rank"}
+	
+	var left_rank := int(registry.get_card(String(cards[0]))["rank"])
+	var right_rank := int(registry.get_card(String(cards[cards.size() - 1]))["rank"])
+	
+	# Must extend an end
+	if end == "LEFT":
+		if new_rank != dec_rank(left_rank):
+			return {"ok": false, "reason": "Card does not extend left end"}
+	elif end == "RIGHT":
+		if new_rank != inc_rank(right_rank):
+			return {"ok": false, "reason": "Card does not extend right end"}
+	else:
+		return {"ok": false, "reason": "Invalid end (LEFT/RIGHT)"}
+	
+	# locked behavior for Ace mode:
+	# - If the run has no Ace yet (ace_mode == UNSET), the moment an Ace is added it locks:
+	#     HIGH if added onto K end (..Q-K + A)
+	#     LOW  if added onto 2 end (A + 2-3..)
+	var new_ace_mode := ace_mode
+	if new_rank == 1 and ace_mode == ACE_UNSET:
+		if end == "RIGHT" and right_rank == 13:
+			new_ace_mode = ACE_HIGH
+		elif end == "LEFT" and left_rank == 2:
+			new_ace_mode = ACE_LOW
+		else:
+			return {"ok": false, "reason": "Ace must be added next to K (HIGH) or next to 2 (LOW)"}
+	
+	if new_ace_mode == ACE_LOW:
+		var ranks_present: Array = []
+		for eid in cards:
+			ranks_present.append(int(registry.get_card(String(eid))["rank"]))
+		ranks_present.append(new_rank)
+		if _contains_ranks(ranks_present, 12, 13, 1):
+			return {"ok": false, "reason": "Ace-LOW run cannot introduce Q-K-A"}
+
+	return {"ok": true, "new_ace_mode": new_ace_mode}
