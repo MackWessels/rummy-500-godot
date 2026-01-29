@@ -6,8 +6,37 @@ var num_players: int = 0
 var hands: Array = []       # Array[Array[String]] CardIDs per player
 var stock: Array = []       # Array[String]
 var discard: Array = []     # Array[String], fully visible
+var melds: Array = []       # Array[Dictionary] shared table melds
 var turn_player: int = 0
 var phase: String = "DRAW"  # "DRAW" -> "MELD" -> "DISCARD"
+
+var must_play_discard_target: Array = []   # Array[String], "" if none
+var must_play_discard_pending: Array = []  # Array[bool]
+
+var hand_over: bool = false
+var hand_end_reason: String = ""
+var went_out_player: int = -1
+
+func init_for_players(p: int) -> void:	
+	hands = []
+	for i in range(p):
+		hands.append([])
+	
+	stock = []
+	discard = []
+	melds = []
+	
+	must_play_discard_target = []
+	must_play_discard_pending = []
+	for i in range(p):
+		must_play_discard_target.append("")
+		must_play_discard_pending.append(false)
+
+func clear_must_play(player: int) -> void:
+	if player < 0 or player >= num_players:
+		return
+	must_play_discard_target[player] = ""
+	must_play_discard_pending[player] = false
 
 func debug_summary() -> String:
 	var hand_sizes := []
