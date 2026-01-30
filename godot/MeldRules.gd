@@ -4,9 +4,9 @@ class_name MeldRules
 const TYPE_SET = "SET"
 const TYPE_RUN = "RUN"
 
-const ACE_UNSET = "UNSET"
-const ACE_LOW = "LOW"
-const ACE_HIGH = "HIGH"
+const ACE_UNSET = "UNSET" # run currently has no Ace
+const ACE_LOW   = "LOW"   # Ace first entered as low (A next to 2), OR Ace existed but no Q-K-A subset at the moment it first appeared
+const ACE_HIGH  = "HIGH"  # Ace first entered as high by forming a Q-K-A subset (either created as Q-K-A, or Ace added onto a run ending in K)
 
 static func inc_rank(r: int) -> int:
 	return (r % 13) + 1
@@ -23,9 +23,12 @@ static func is_valid_set(card_ids: Array, registry: CardRegistry) -> bool:
 	if card_ids.size() < 3:
 		return false
 	
-	var rank = int(registry.get_card(card_ids[0])["rank"])
+	var rank = registry.get_card(String(card_ids[0]))
 	for cid in card_ids:
-		if int(registry.get_card(cid)["rank"]) != rank:
+		var c = registry.get_card(String(cid))
+		if c.is_empty():
+			return false
+		if int(c["rank"]) != rank:
 			return false
 	
 	return true
@@ -38,9 +41,12 @@ static func get_set_rank(card_ids: Array, registry: CardRegistry) -> int:
 static func _contains_ranks(ranks: Array, a: int, b: int, c: int) -> bool:
 	return ranks.has(a) and ranks.has(b) and ranks.has(c)
 
-static func _determine_ace_mode_for_new_run(ranks: Array) -> String:
-	#Ace is HIGH only if run was initially played including Q-K-A.
-	if _contains_ranks(ranks, 12, 13, 1):
+static func _infer_ace_mode_from_ranks(ranks_present: Array) -> String:
+	# If Ace is present, HIGH only if the run contains the Q-K-A subset.
+	# Otherwise LOW. If no Ace, UNSET.
+	if not ranks_present.has(1):
+		return ACE_UNSET
+	if ranks_present.has(12) and ranks_present.has(13):
 		return ACE_HIGH
 	return ACE_LOW
 
@@ -85,37 +91,54 @@ static func _candidate_sequences(ranks_set: Dictionary) -> Array:
 	return candidates
 
 static func build_run_meld(card_ids: Array, registry: CardRegistry) -> Dictionary:
-	# Returns {"ok":bool, "reason":String, "suit":String, "ace_mode":String, "ordered_card_ids":Array}
+	# Returns:
+	# {"ok":bool, "reason":String, "suit":String, "ace_mode":String, "ordered_card_ids":Array}
+	# 
+	# - 3+ same suit
+	# - wrap allowed
+	# - deterministic order chosen from valid rotations
+	# - ace_mode is UNSET unless an Ace is present
+	# - if Ace is present on creation: HIGH only if Q-K-A subset exists; otherwise LOW
 	if card_ids.size() < 3:
 		return {"ok": false, "reason": "RUN needs 3+ cards"}
 
-	var suit = String(registry.get_card(card_ids[0])["suit"])
+	var first = registry.get_card(String(card_ids[0]))
+	if first.is_empty():
+		return {"ok": false, "reason": "Unknown card id"}
 
-	var rank_to_id: Dictionary = {} # rank -> card_id
+	var suit = String(first["suit"])
+
+	var rank_to_id: Dictionary = {} # rank -> card_id (only one per rank allowed in a run)
 	var ranks: Array = []
+
 	for cid in card_ids:
-		var c = registry.get_card(cid)
+		var c = registry.get_card(String(cid))
+		if c.is_empty():
+			return {"ok": false, "reason": "Unknown card id"}
 		if String(c["suit"]) != suit:
 			return {"ok": false, "reason": "RUN needs same suit"}
+
 		var r = int(c["rank"])
 		if rank_to_id.has(r):
 			return {"ok": false, "reason": "RUN cannot contain duplicate rank in same suit"}
+
 		rank_to_id[r] = String(cid)
 		ranks.append(r)
-
-	var ace_mode := _determine_ace_mode_for_new_run(ranks)
 
 	var ranks_set: Dictionary = {}
 	for r in ranks:
 		ranks_set[int(r)] = true
 
-	var candidates := _candidate_sequences(ranks_set)
+	var candidates = _candidate_sequences(ranks_set)
 	if candidates.is_empty():
 		return {"ok": false, "reason": "RUN ranks are not consecutive (wrap allowed)"}
 
-	#pick smallest key under ace_mode
+	var ace_mode = _infer_ace_mode_from_ranks(ranks)
+
+	# Pick the smallest key under ace_mode for deterministic storage/display
 	var best_seq: Array = candidates[0]
 	var best_key: Array = _seq_key(best_seq, ace_mode)
+
 	for i in range(1, candidates.size()):
 		var seq: Array = candidates[i]
 		var key: Array = _seq_key(seq, ace_mode)
@@ -123,7 +146,6 @@ static func build_run_meld(card_ids: Array, registry: CardRegistry) -> Dictionar
 			best_seq = seq
 			best_key = key
 
-	# Map ranks to the chosen physical card IDs
 	var ordered_card_ids: Array = []
 	for r in best_seq:
 		ordered_card_ids.append(String(rank_to_id[int(r)]))
@@ -137,27 +159,55 @@ static func build_run_meld(card_ids: Array, registry: CardRegistry) -> Dictionar
 
 static func can_extend_run_end(run_meld: Dictionary, card_id: String, end: String, registry: CardRegistry) -> Dictionary:
 	# Returns {"ok":bool, "reason":String, "new_ace_mode":String}
+	#
+	# Run extension rules:
+	# - Only add to LEFT or RIGHT end
+	# - Must be exactly consecutive (wrap allowed)
+	# - No duplicate rank in a run
+	# - ace_mode locks the moment an Ace first enters a run:
+	#     HIGH if Ace is added onto the K end (...Q-K + A), which forms a Q-K-A subset
+	#     LOW  if Ace is added onto the 2 end (A + 2-3...)
+	# - After locking, ace_mode never changes and does NOT restrict future wrap extensions.
 	if String(run_meld.get("type", "")) != TYPE_RUN:
 		return {"ok": false, "reason": "Not a run"}
-	
-	var cards: Array = run_meld["cards"]
-	var suit := String(run_meld["suit"])
-	var ace_mode := String(run_meld["ace_mode"])
-	
-	var c := registry.get_card(card_id)
+
+	var cards: Array = run_meld.get("cards", [])
+	if cards.size() < 3:
+		return {"ok": false, "reason": "Run is too small"}
+
+	var suit = String(run_meld.get("suit", ""))
+	var ace_mode = String(run_meld.get("ace_mode", ACE_UNSET))
+	if ace_mode != ACE_UNSET and ace_mode != ACE_LOW and ace_mode != ACE_HIGH:
+		ace_mode = ACE_UNSET
+
+	var c = registry.get_card(String(card_id))
+	if c.is_empty():
+		return {"ok": false, "reason": "Unknown card id"}
 	if String(c["suit"]) != suit:
 		return {"ok": false, "reason": "Wrong suit for this run"}
-	
+
 	var new_rank := int(c["rank"])
-	
+
 	# Disallow duplicate rank in run
 	for existing_id in cards:
 		if int(registry.get_card(String(existing_id))["rank"]) == new_rank:
 			return {"ok": false, "reason": "Run already has that rank"}
-	
+
+	# Defensive normalize: if run already contains an Ace but ace_mode says UNSET, infer it.
+	var ranks_present: Array = []
+	var has_ace = false
+	for eid in cards:
+		var r = int(registry.get_card(String(eid))["rank"])
+		ranks_present.append(r)
+		if r == 1:
+			has_ace = true
+
+	if ace_mode == ACE_UNSET and has_ace:
+		ace_mode = _infer_ace_mode_from_ranks(ranks_present)
+
 	var left_rank = int(registry.get_card(String(cards[0]))["rank"])
 	var right_rank = int(registry.get_card(String(cards[cards.size() - 1]))["rank"])
-	
+
 	# Must extend an end
 	if end == "LEFT":
 		if new_rank != dec_rank(left_rank):
@@ -167,26 +217,17 @@ static func can_extend_run_end(run_meld: Dictionary, card_id: String, end: Strin
 			return {"ok": false, "reason": "Card does not extend right end"}
 	else:
 		return {"ok": false, "reason": "Invalid end (LEFT/RIGHT)"}
-	
-	# locked behavior for Ace mode:
-	# - If the run has no Ace yet (ace_mode == UNSET), the moment an Ace is added it locks:
-	#     HIGH if added onto K end (..Q-K + A)
-	#     LOW  if added onto 2 end (A + 2-3..)
-	var new_ace_mode := ace_mode
+
+	# Lock behavior when Ace first enters a run (ace_mode == UNSET implies no Ace yet)
+	var new_ace_mode = ace_mode
 	if new_rank == 1 and ace_mode == ACE_UNSET:
+		# Because runs are stored as increasing-by-inc_rank order,
+		# a no-Ace run can only have K (13) as the RIGHT end, and 2 as the LEFT end.
 		if end == "RIGHT" and right_rank == 13:
 			new_ace_mode = ACE_HIGH
 		elif end == "LEFT" and left_rank == 2:
 			new_ace_mode = ACE_LOW
 		else:
 			return {"ok": false, "reason": "Ace must be added next to K (HIGH) or next to 2 (LOW)"}
-	
-	if new_ace_mode == ACE_LOW:
-		var ranks_present: Array = []
-		for eid in cards:
-			ranks_present.append(int(registry.get_card(String(eid))["rank"]))
-		ranks_present.append(new_rank)
-		if _contains_ranks(ranks_present, 12, 13, 1):
-			return {"ok": false, "reason": "Ace-LOW run cannot introduce Q-K-A"}
 
 	return {"ok": true, "new_ace_mode": new_ace_mode}
