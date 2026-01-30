@@ -22,15 +22,16 @@ static func dec_rank(r: int) -> int:
 static func is_valid_set(card_ids: Array, registry: CardRegistry) -> bool:
 	if card_ids.size() < 3:
 		return false
-	
-	var rank = registry.get_card(String(card_ids[0]))
+
+	var rank := int(registry.get_card(String(card_ids[0]))["rank"])
+
 	for cid in card_ids:
 		var c = registry.get_card(String(cid))
 		if c.is_empty():
 			return false
 		if int(c["rank"]) != rank:
 			return false
-	
+
 	return true
 
 static func get_set_rank(card_ids: Array, registry: CardRegistry) -> int:
