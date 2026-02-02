@@ -42,6 +42,6 @@ func debug_summary() -> String:
 	var hand_sizes := []
 	for h in hands:
 		hand_sizes.append(h.size())
-	return "players=%s hand_sizes=%s stock=%s discard=%s turn=%s phase=%s" % [
-		num_players, hand_sizes, stock.size(), discard.size(), melds.size(), turn_player, phase
+	return "players=%s hand_sizes=%s stock=%s discard=%s melds=%s turn=%s phase=%s" % [
+	num_players, hand_sizes, stock.size(), discard.size(), melds.size(), turn_player, phase
 	]

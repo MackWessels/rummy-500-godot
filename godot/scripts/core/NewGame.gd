@@ -14,7 +14,8 @@ static func deck_count(num_players: int) -> int:
 static func create_game(num_players: int, registry: CardRegistry) -> GameState:
 	var state = GameState.new()
 	state.num_players = num_players
-
+	state.init_for_players(num_players)
+	
 	var decks = deck_count(num_players)
 	var shoe = DeckBuilder.build_shoe(decks, registry)
 	DeckBuilder.shuffle_in_place(shoe)
