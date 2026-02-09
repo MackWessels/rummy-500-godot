@@ -7,6 +7,11 @@ var ap: ActionProcessor
 func _ready() -> void:
 	print("TestActionProcessor _ready() fired")
 	test_discard_target_must_play_then_meld_and_layoffs()
+	test_must_play_target_via_layoff_and_invalid_actions()
+	
+	print("Done.")
+
+func test_must_play_target_via_layoff_and_invalid_actions() -> void:
 	print("Done.")
 
 
