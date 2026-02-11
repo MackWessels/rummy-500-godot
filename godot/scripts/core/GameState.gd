@@ -17,7 +17,12 @@ var hand_over: bool = false
 var hand_end_reason: String = ""
 var went_out_player: int = -1
 
-func init_for_players(p: int) -> void:	
+var hand_scored: bool = false
+var hand_points_table: Array = []     # Array[int]
+var hand_points_deadwood: Array = []  # Array[int]
+var hand_points_net: Array = []       # Array[int]
+
+func init_for_players(p: int) -> void:
 	hands = []
 	for i in range(p):
 		hands.append([])
@@ -31,6 +36,20 @@ func init_for_players(p: int) -> void:
 	for i in range(p):
 		must_play_discard_target.append("")
 		must_play_discard_pending.append(false)
+	
+		hand_over = false
+	hand_end_reason = ""
+	went_out_player = -1
+	
+	hand_scored = false
+	hand_points_table = []
+	hand_points_deadwood = []
+	hand_points_net = []
+	
+	for i in range(p):
+		hand_points_table.append(0)
+		hand_points_deadwood.append(0)
+		hand_points_net.append(0)
 
 func clear_must_play(player: int) -> void:
 	if player < 0 or player >= num_players:
