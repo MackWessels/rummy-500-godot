@@ -454,6 +454,7 @@ func _ensure_must_play_arrays(state: GameState) -> void:
 func _end_hand(state: GameState, reason: String) -> void:
 	state.hand_over = true
 	state.hand_end_reason = reason
+	HandResolver.resolve_hand(state, registry)
 
 func _hand_contains_all(hand: Array, needed: Array) -> bool:
 	# multiplicity-aware
