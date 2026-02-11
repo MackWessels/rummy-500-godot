@@ -198,11 +198,17 @@ func _do_create_meld(state: GameState, player: int, action: Dictionary) -> Dicti
 	
 	_remove_cards_from_hand(state.hands[player], card_ids)
 	
-	var meld_id = state.melds.size() # simple stable id for now; swap later if you want incremental id
+	var meld_id = state.melds.size()
+	var contrib = {}
+	for cid in Array(build["ordered_card_ids"]):
+		contrib[String(cid)] = player
+	
 	var meld: Dictionary = {
 		"id": meld_id,
 		"type": meld_kind,
-		"cards": Array(build["ordered_card_ids"]).duplicate()
+		"cards": Array(build["ordered_card_ids"]).duplicate(),
+		"owner": player,
+		"contrib": contrib
 	}
 	
 	if meld_kind == MELD_SET:
