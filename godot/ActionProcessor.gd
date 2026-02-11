@@ -262,6 +262,12 @@ func _do_layoff(state: GameState, player: int, action: Dictionary) -> Dictionary
 		
 		meld["cards"].append(card_id)
 		_sort_set_cards_in_place(meld["cards"])
+		
+		# Record contribution for scoring
+		if not meld.has("contrib") or typeof(meld["contrib"]) != TYPE_DICTIONARY:
+			meld["contrib"] = {}
+		meld["contrib"][card_id] = player
+		
 		_remove_cards_from_hand(state.hands[player], [card_id])
 	
 	elif mtype == MELD_RUN:
@@ -286,6 +292,10 @@ func _do_layoff(state: GameState, player: int, action: Dictionary) -> Dictionary
 			meld["cards"].append(card_id)
 		
 		meld["ace_mode"] = String(check.get("new_ace_mode", meld.get("ace_mode", MeldRules.ACE_UNSET)))
+		# Record contribution for scoring
+		if not meld.has("contrib") or typeof(meld["contrib"]) != TYPE_DICTIONARY:
+			meld["contrib"] = {}
+		meld["contrib"][card_id] = player
 		
 		_remove_cards_from_hand(state.hands[player], [card_id])
 	else:
