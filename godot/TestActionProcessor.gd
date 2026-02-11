@@ -12,8 +12,126 @@ func _ready() -> void:
 	print("Done.")
 
 func test_must_play_target_via_layoff_and_invalid_actions() -> void:
-	print("Done.")
+	print("\n--- test_must_play_target_via_layoff_and_invalid_actions ---")
 
+	registry = CardRegistry.new()
+	DeckBuilder.build_shoe(1, registry)
+
+	ap = ActionProcessor.new(registry, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123)
+
+	var state = GameState.new()
+	state.num_players = 2
+	state.init_for_players(2)
+	state.turn_player = 0
+	state.phase = "DRAW"
+	state.hand_over = false
+	state.hand_end_reason = ""
+	state.went_out_player = -1
+
+	# Card ids we need
+	var c3S = _cid(0, "S", 3)
+	var c4S = _cid(0, "S", 4)
+	var c5S = _cid(0, "S", 5)
+	var c6S = _cid(0, "S", 6)
+
+	var c7C = _cid(0, "C", 7)
+	var c7H = _cid(0, "H", 7)
+	var c7D = _cid(0, "D", 7)
+
+	var c2C = _cid(0, "C", 2)
+	var c9D = _cid(0, "D", 9)
+	var cQD = _cid(0, "D", 12)
+	var c8H = _cid(0, "H", 8)
+
+	_expect(c3S != "" and c4S != "" and c5S != "" and c6S != "", "Found run cards 3S-6S")
+	_expect(c7C != "" and c7H != "" and c7D != "", "Found set cards 7C/7H/7D")
+	_expect(c2C != "" and c9D != "" and cQD != "" and c8H != "", "Found filler cards")
+
+	# Pre-existing melds on the table:
+	# RUN: 3S-4S-5S (id 0)
+	# SET: 7C-7D-7H (id 1)
+	state.melds = [
+		{"id": 0, "type": "RUN", "cards": [c3S, c4S, c5S], "suit": "S", "ace_mode": "UNSET"},
+		{"id": 1, "type": "SET", "cards": [c7C, c7D, c7H], "rank": 7}
+	]
+
+	# Player 0 will draw discard-stack with target 6S and must immediately play 6S into a meld this turn.
+	state.hands[0] = [c2C] # just a filler card to show hand changes
+	# Player 1 has cards for invalid layoff tests later
+	state.hands[1] = [c4S, c8H]
+
+	# Discard: put target 6S in the middle, with 9D above it.
+	state.discard = [c7C, c6S, c9D] # bottom->top, top is 9D
+	# Stock: give player 1 something to draw
+	state.stock = [cQD]
+
+	print("Initial:", state.debug_summary())
+	print("Melds:", state.melds)
+	print("P0 hand:", state.hands[0])
+	print("P1 hand:", state.hands[1])
+	print("Discard (bottom->top):", state.discard)
+	print("Stock (top is last):", state.stock)
+
+	# 1) P0 draws discard stack down to target 6S (takes 6S + 9D)
+	var r = ap.apply(state, 0, {"type":"DRAW_DISCARD_STACK", "target_card_id": c6S})
+	_expect(r.ok, "P0 DRAW_DISCARD_STACK ok")
+	_expect(state.phase == "PLAY", "Phase is PLAY after discard-stack draw")
+	_expect(state.must_play_discard_pending[0] == true, "must_play pending set for P0")
+	_expect(state.must_play_discard_target[0] == c6S, "must_play target is 6S")
+	_expect(state.discard.size() == 1, "Discard left below target only")
+	_expect(state.hands[0].has(c6S) and state.hands[0].has(c9D), "P0 received 6S and 9D")
+
+	# 2) P0 tries to DISCARD before satisfying must-play -> reject
+	r = ap.apply(state, 0, {"type":"DISCARD", "card_id": c9D})
+	_expect(not r.ok, "P0 DISCARD rejected while must-play pending")
+	_expect(r.reason == "MUST_PLAY_DISCARD_TARGET_BEFORE_DISCARD", "Correct reason for discard rejection")
+
+	# 3) P0 tries to lay off 6S to the WRONG end (LEFT) of run 3S-4S-5S -> reject
+	r = ap.apply(state, 0, {"type":"LAYOFF", "meld_id": 0, "card_id": c6S, "end":"LEFT"})
+	_expect(not r.ok, "P0 LAYOFF 6S on wrong end rejected")
+	_expect(r.reason == "Card does not extend left end", "Correct reason for wrong-end run layoff")
+	_expect(state.must_play_discard_pending[0] == true, "must_play still pending after failed layoff")
+
+	# 4) P0 tries to DRAW_STOCK while in PLAY -> reject
+	r = ap.apply(state, 0, {"type":"DRAW_STOCK"})
+	_expect(not r.ok, "P0 DRAW_STOCK rejected in PLAY")
+	_expect(r.reason == "BAD_PHASE_NEED_DRAW", "Correct reason for draw in wrong phase")
+
+	# 5) P0 lays off 6S to RIGHT end of run -> ok, must-play clears
+	r = ap.apply(state, 0, {"type":"LAYOFF", "meld_id": 0, "card_id": c6S, "end":"RIGHT"})
+	_expect(r.ok, "P0 LAYOFF 6S on RIGHT ok")
+	_expect(state.melds[0]["cards"].back() == c6S, "6S appended to run")
+	_expect(state.must_play_discard_pending[0] == false, "must_play cleared after successful layoff")
+
+	# 6) Now P0 can discard and end turn
+	r = ap.apply(state, 0, {"type":"DISCARD", "card_id": c9D})
+	_expect(r.ok, "P0 DISCARD ok after satisfying must-play")
+	_expect(state.turn_player == 1, "Turn advanced to P1")
+	_expect(state.phase == "DRAW", "Phase reset to DRAW for P1")
+
+	# 7) P0 tries to act out of turn -> reject
+	r = ap.apply(state, 0, {"type":"DRAW_STOCK"})
+	_expect(not r.ok, "P0 action rejected when not your turn")
+	_expect(r.reason == "NOT_YOUR_TURN", "Correct reason for out-of-turn action")
+
+	# 8) P1 draws stock
+	r = ap.apply(state, 1, {"type":"DRAW_STOCK"})
+	_expect(r.ok, "P1 DRAW_STOCK ok")
+	_expect(state.phase == "PLAY", "P1 phase is PLAY after draw")
+
+	# 9) P1 tries to lay off a duplicate rank already in run (4S is already in 3S-4S-5S-6S) -> reject
+	r = ap.apply(state, 1, {"type":"LAYOFF", "meld_id": 0, "card_id": c4S, "end":"RIGHT"})
+	_expect(not r.ok, "P1 duplicate-rank run layoff rejected")
+	_expect(r.reason == "Run already has that rank", "Correct reason for duplicate rank in run")
+
+	# 10) P1 tries to lay off wrong rank onto SET(7s) using 8H -> reject
+	r = ap.apply(state, 1, {"type":"LAYOFF", "meld_id": 1, "card_id": c8H})
+	_expect(not r.ok, "P1 wrong-rank set layoff rejected")
+	_expect(r.reason == "SET_LAYOFF_WRONG_RANK", "Correct reason for wrong-rank set layoff")
+
+	print("Final:", state.debug_summary())
+	print("Melds:", state.melds)
+	print("Discard (bottom->top):", state.discard)
 
 func test_discard_target_must_play_then_meld_and_layoffs() -> void:
 	print("\n--- test_discard_target_must_play_then_meld_and_layoffs ---")
