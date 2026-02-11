@@ -96,8 +96,8 @@ func _do_draw_stock(state: GameState, player: int) -> Dictionary:
 		out.events.append_array(refill["events"])
 	
 	if state.stock.is_empty():
-		_end_hand(state, "STOCK_EMPTY")
-		out.reason = "STOCK_EMPTY"
+		_end_hand(state, "NO_CARDS_TO_REFILL_STOCK")
+		out.reason = "NO_CARDS_TO_REFILL_STOCK"
 		out.hand_ended = true
 		return out
 	
