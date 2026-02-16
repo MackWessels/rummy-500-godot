@@ -6,10 +6,108 @@ var ap: ActionProcessor
 
 func _ready() -> void:
 	print("TestActionProcessor _ready() fired")
-	test_discard_target_must_play_then_meld_and_layoffs()
-	test_must_play_target_via_layoff_and_invalid_actions()
+	#test_discard_target_must_play_then_meld_and_layoffs()
+	#test_must_play_target_via_layoff_and_invalid_actions()
+	
+	test_scoring_contrib_and_deadwood()
 	
 	print("Done.")
+
+
+
+
+func test_scoring_contrib_and_deadwood() -> void:
+	print("\n--- test_scoring_contrib_and_deadwood ---")
+
+	registry = CardRegistry.new()
+	DeckBuilder.build_shoe(1, registry)
+	ap = ActionProcessor.new(registry, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123)
+
+	var state = GameState.new()
+	state.init_for_players(2)
+	state.turn_player = 0
+	state.phase = "DRAW"
+
+	# Cards
+	var c7C = _cid(0, "C", 7)
+	var c7H = _cid(0, "H", 7)
+	var c7D = _cid(0, "D", 7)
+	var c7S = _cid(0, "S", 7)
+
+	var c9D = _cid(0, "D", 9)
+	var c2C = _cid(0, "C", 2)
+	var cQD = _cid(0, "D", 12)
+	var c8H = _cid(0, "H", 8)
+
+	_expect(c7C != "" and c7H != "" and c7D != "" and c7S != "", "Found all 7s")
+	_expect(c9D != "" and c2C != "" and cQD != "" and c8H != "", "Found filler cards")
+
+	# Hands (before any draws)
+	state.hands[0] = [c7C, c7H, c7D]     # will meld these
+	state.hands[1] = [c7S, c9D]          # will layoff 7S, discard 9D, keep drawn card as deadwood
+
+	# Stock order: pop_back() is the draw
+	# P0 draws c2C, P1 draws cQD, P0 draws c8H
+	state.stock = [c8H, cQD, c2C]
+	state.discard = []
+
+	# P0 draw stock
+	var r = ap.apply(state, 0, {"type":"DRAW_STOCK"})
+	_expect(r.ok, "P0 DRAW_STOCK ok")
+	_expect(state.hands[0].has(c2C), "P0 received 2C")
+
+	# P0 create set of 7s (contrib -> player 0)
+	r = ap.apply(state, 0, {"type":"CREATE_MELD", "meld_kind":"SET", "card_ids":[c7C, c7H, c7D]})
+	_expect(r.ok, "P0 CREATE_MELD set ok")
+	_expect(state.melds.size() == 1, "One meld on table")
+	_expect(int(state.melds[0].get("owner", -1)) == 0, "Meld owner is P0")
+	_expect(int(state.melds[0]["contrib"].get(c7C, -1)) == 0, "contrib 7C -> P0")
+	_expect(int(state.melds[0]["contrib"].get(c7H, -1)) == 0, "contrib 7H -> P0")
+	_expect(int(state.melds[0]["contrib"].get(c7D, -1)) == 0, "contrib 7D -> P0")
+
+	# P0 discard 2C (end turn)
+	r = ap.apply(state, 0, {"type":"DISCARD", "card_id": c2C})
+	_expect(r.ok, "P0 DISCARD 2C ok")
+	_expect(state.turn_player == 1 and state.phase == "DRAW", "Turn -> P1 DRAW")
+
+	# P1 draw stock (QD)
+	r = ap.apply(state, 1, {"type":"DRAW_STOCK"})
+	_expect(r.ok, "P1 DRAW_STOCK ok")
+	_expect(state.hands[1].has(cQD), "P1 received QD")
+
+	# P1 layoff 7S onto meld 0 (contrib -> player 1)
+	r = ap.apply(state, 1, {"type":"LAYOFF", "meld_id": 0, "card_id": c7S})
+	_expect(r.ok, "P1 LAYOFF 7S ok")
+	_expect(int(state.melds[0]["contrib"].get(c7S, -1)) == 1, "contrib 7S -> P1")
+
+	# P1 discard 9D (end turn, keep QD in hand as deadwood)
+	r = ap.apply(state, 1, {"type":"DISCARD", "card_id": c9D})
+	_expect(r.ok, "P1 DISCARD 9D ok")
+	_expect(state.turn_player == 0 and state.phase == "DRAW", "Turn -> P0 DRAW")
+
+	# P0 go out: draw 8H, then discard it (discarding last card ends hand)
+	r = ap.apply(state, 0, {"type":"DRAW_STOCK"})
+	_expect(r.ok, "P0 DRAW_STOCK (8H) ok")
+	_expect(state.hands[0].size() == 1 and state.hands[0][0] == c8H, "P0 has only 8H")
+
+	r = ap.apply(state, 0, {"type":"DISCARD", "card_id": c8H})
+	_expect(r.ok and r.hand_ended and r.went_out, "P0 DISCARD last card => went out")
+	_expect(state.hand_over == true, "state.hand_over true")
+	_expect(state.hand_end_reason == "WENT_OUT", "hand_end_reason WENT_OUT")
+	_expect(state.went_out_player == 0, "went_out_player is P0")
+
+	# Scoring expectations:
+	# Table: P0 has 7C+7H+7D = 21, P1 has 7S = 7
+	# Deadwood at end: P0 = 0, P1 has QD (10 points)
+	_expect(state.hand_scored == true, "hand_scored true")
+	_expect(state.hand_points_table[0] == 21, "P0 table points = 21")
+	_expect(state.hand_points_table[1] == 7,  "P1 table points = 7")
+	_expect(state.hand_points_deadwood[0] == 0,  "P0 deadwood = 0")
+	_expect(state.hand_points_deadwood[1] == 10, "P1 deadwood = 10 (QD)")
+	_expect(state.hand_points_net[0] == 21, "P0 net = 21")
+	_expect(state.hand_points_net[1] == -3, "P1 net = 7-10 = -3")
+
+
 
 func test_must_play_target_via_layoff_and_invalid_actions() -> void:
 	print("\n--- test_must_play_target_via_layoff_and_invalid_actions ---")

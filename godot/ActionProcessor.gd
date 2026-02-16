@@ -86,17 +86,19 @@ func _do_draw_stock(state: GameState, player: int) -> Dictionary:
 		out.reason = "BAD_PHASE_NEED_DRAW"
 		return out
 	
+	# If stock is empty, try to refill it
 	if state.stock.is_empty():
 		var refill = _handle_stock_empty(state)
 		if not refill["ok"]:
-			_end_hand(state, String(refill["reason"]))
-			out.reason = String(refill["reason"])
+			_end_hand(state, "NO_CARDS_TO_REFILL_STOCK") 
+			out.reason = "NO_CARDS_TO_REFILL_STOCK"
 			out.hand_ended = true
 			return out
 		out.events.append_array(refill["events"])
 	
+	# After a refill, stock should be non-empty
 	if state.stock.is_empty():
-		_end_hand(state, "NO_CARDS_TO_REFILL_STOCK")
+		_end_hand(state, "NO_CARDS_TO_REFILL_STOCK") # STOCK_EXHAUSTED
 		out.reason = "NO_CARDS_TO_REFILL_STOCK"
 		out.hand_ended = true
 		return out
