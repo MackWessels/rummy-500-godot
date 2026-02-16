@@ -23,6 +23,8 @@ var hand_points_deadwood: Array = []  # Array[int]
 var hand_points_net: Array = []       # Array[int]
 
 func init_for_players(p: int) -> void:
+	num_players = p
+	
 	hands = []
 	for i in range(p):
 		hands.append([])
@@ -30,6 +32,9 @@ func init_for_players(p: int) -> void:
 	stock = []
 	discard = []
 	melds = []
+	
+	turn_player = 0
+	phase = "DRAW"
 	
 	must_play_discard_target = []
 	must_play_discard_pending = []
