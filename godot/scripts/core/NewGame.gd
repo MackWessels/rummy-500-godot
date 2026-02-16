@@ -20,10 +20,6 @@ static func create_game(num_players: int, registry: CardRegistry) -> GameState:
 	var shoe = DeckBuilder.build_shoe(decks, registry)
 	DeckBuilder.shuffle_in_place(shoe)
 
-	# init hands
-	state.hands = []
-	for i in range(num_players):
-		state.hands.append([])
 
 	# deal
 	var per = deal_count(num_players)
