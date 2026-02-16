@@ -6,13 +6,39 @@ var ap: ActionProcessor
 
 func _ready() -> void:
 	print("TestActionProcessor _ready() fired")
-	#test_discard_target_must_play_then_meld_and_layoffs()
-	#test_must_play_target_via_layoff_and_invalid_actions()
+	test_discard_target_must_play_then_meld_and_layoffs()
+	test_must_play_target_via_layoff_and_invalid_actions()
 	
 	test_scoring_contrib_and_deadwood()
+	test_stock_exhausted_ends_hand()
 	
 	print("Done.")
 
+func test_stock_exhausted_ends_hand() -> void:
+	print("\n--- test_stock_exhausted_ends_hand ---")
+
+	registry = CardRegistry.new()
+	DeckBuilder.build_shoe(1, registry)
+	ap = ActionProcessor.new(registry, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123)
+
+	var state = GameState.new()
+	state.init_for_players(2)
+	state.turn_player = 0
+	state.phase = "DRAW"
+
+	var c2C = _cid(0, "C", 2)
+	_expect(c2C != "", "Found 2C")
+
+	state.stock = []          # empty stock
+	state.discard = [c2C]     # discard < 2 => cannot refill
+
+	var r = ap.apply(state, 0, {"type":"DRAW_STOCK"})
+	_expect(not r.ok, "DRAW_STOCK fails when no cards to refill")
+	_expect(r.hand_ended == true, "hand_ended true")
+	_expect(r.reason == "NO_CARDS_TO_REFILL_STOCK", "reason NO_CARDS_TO_REFILL_STOCK")
+	_expect(state.hand_over == true, "state.hand_over true")
+	_expect(state.hand_end_reason == "NO_CARDS_TO_REFILL_STOCK", "state.hand_end_reason matches")
+	_expect(state.hand_scored == true, "hand_scored still runs on forced end")
 
 
 
