@@ -12,7 +12,66 @@ func _ready() -> void:
 	test_scoring_contrib_and_deadwood()
 	test_stock_exhausted_ends_hand()
 	
+	test_refill_stock_event_and_keep_top_discard()
+	
 	print("Done.")
+
+func test_refill_stock_event_and_keep_top_discard() -> void:
+	print("\n--- test_refill_stock_event_and_keep_top_discard ---")
+
+	registry = CardRegistry.new()
+	DeckBuilder.build_shoe(1, registry)
+	ap = ActionProcessor.new(registry, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123)
+
+	var state := GameState.new()
+	state.init_for_players(2)
+	state.turn_player = 0
+	state.phase = "DRAW"
+
+	# Pick 3 known cards
+	var a = _cid(0, "C", 2)
+	var b = _cid(0, "D", 9)
+	var top = _cid(0, "H", 13) # top discard we must keep
+
+	_expect(a != "" and b != "" and top != "", "Found refill test cards")
+
+	# Empty stock, discard has 3 cards (bottom->top)
+	state.stock = []
+	state.discard = [a, b, top]
+
+	var r = ap.apply(state, 0, {"type":"DRAW_STOCK"})
+	_expect(r.ok, "DRAW_STOCK succeeds via refill")
+	_expect(state.hand_over == false, "Hand not ended")
+
+	# Discard should now only contain the kept top
+	_expect(state.discard.size() == 1, "Discard reduced to 1 (kept top only)")
+	_expect(state.discard[0] == top, "Top discard preserved")
+
+	# Events should include REFILL_STOCK then DRAW_STOCK
+	var saw_refill = false
+	var refill_new_stock_size := -1
+	var refill_kept = ""
+	for e in r.events:
+		if String(e.get("type","")) == "REFILL_STOCK":
+			saw_refill = true
+			refill_new_stock_size = int(e.get("new_stock_size", -1))
+			refill_kept = String(e.get("kept_top_discard", ""))
+	_expect(saw_refill, "REFILL_STOCK event emitted")
+	_expect(refill_kept == top, "REFILL_STOCK kept_top_discard matches")
+	_expect(refill_new_stock_size == 2, "REFILL_STOCK new_stock_size == discard_before-1 (3-1=2)")
+
+	# After refill (2 cards), draw consumes 1 => stock size should be 1
+	_expect(state.stock.size() == 1, "Stock size after draw is 1")
+
+	# The drawn card must be one of [a,b], not the kept top
+	var drawn_id = ""
+	for e in r.events:
+		if String(e.get("type","")) == "DRAW_STOCK":
+			drawn_id = String(e.get("card_id",""))
+	_expect(drawn_id == a or drawn_id == b, "Drew one of the shuffled discard cards")
+	_expect(drawn_id != top, "Did not draw the kept top discard")
+
+
 
 func test_stock_exhausted_ends_hand() -> void:
 	print("\n--- test_stock_exhausted_ends_hand ---")

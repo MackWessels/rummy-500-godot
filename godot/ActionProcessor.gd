@@ -140,6 +140,11 @@ func _do_draw_discard_stack(state: GameState, player: int, action: Dictionary) -
 	for i in range(idx, state.discard.size()):
 		taken.append(String(state.discard[i]))
 	
+	var target_card = registry.get_card(target)
+	if target_card.is_empty():
+		out.reason = "UNKNOWN_CARD_ID"
+		return out
+	
 	# remove from discard
 	state.discard.resize(idx)
 	
@@ -495,3 +500,118 @@ func _find_meld_index(melds: Array, meld_id: int) -> int:
 		if int(melds[i].get("id", -1)) == meld_id:
 			return i
 	return -1
+
+func _discard_target_playable_this_turn(state: GameState, target_card_id: String, temp_hand: Array) -> bool:
+	# Playable if it can layoff target onto any existing meld, OR can create a new meld that includes target from temp_hand
+	if _can_layoff_target_to_any_meld(state, target_card_id):
+		return true
+	if _can_create_set_with_target(temp_hand, target_card_id):
+		return true
+	if _can_create_run_with_target(temp_hand, target_card_id):
+		return true
+	return false
+
+
+func _can_layoff_target_to_any_meld(state: GameState, target_card_id: String) -> bool:
+	var tc = registry.get_card(target_card_id)
+	if tc.is_empty():
+		return false
+	
+	var target_rank = int(tc["rank"])
+	
+	for meld_any in state.melds:
+		var meld: Dictionary = meld_any
+		var mtype = String(meld.get("type", ""))
+		
+		if mtype == MELD_SET:
+			var set_rank = int(meld.get("rank", 0))
+			if set_rank == target_rank:
+				return true
+		
+		elif mtype == MELD_RUN:
+			var check_l = MeldRules.can_extend_run_end(meld, target_card_id, END_LEFT, registry)
+			if bool(check_l.get("ok", false)):
+				return true
+			var check_r = MeldRules.can_extend_run_end(meld, target_card_id, END_RIGHT, registry)
+			if bool(check_r.get("ok", false)):
+				return true
+	
+	return false
+
+
+func _can_create_set_with_target(temp_hand: Array, target_card_id: String) -> bool:
+	var tc = registry.get_card(target_card_id)
+	if tc.is_empty():
+		return false
+	var target_rank = int(tc["rank"])
+	
+	var count = 0
+	for cid_any in temp_hand:
+		var cid = String(cid_any)
+		var c = registry.get_card(cid)
+		if c.is_empty():
+			continue
+		if int(c["rank"]) == target_rank:
+			count += 1
+			if count >= 3:
+				return true
+	
+	return false
+
+
+func _can_create_run_with_target(temp_hand: Array, target_card_id: String) -> bool:
+	var tc = registry.get_card(target_card_id)
+	if tc.is_empty():
+		return false
+	
+	var suit = String(tc["suit"])
+	var target_rank = int(tc["rank"])
+	
+	# Choose one CardID per rank for this suit (duplicates exist across decks)
+	var rank_to_id: Dictionary = {}
+	for cid_any in temp_hand:
+		var cid := String(cid_any)
+		var c = registry.get_card(cid)
+		if c.is_empty():
+			continue
+		if String(c["suit"]) != suit:
+			continue
+		var r := int(c["rank"])
+		if not rank_to_id.has(r):
+			rank_to_id[r] = cid
+	
+	if rank_to_id.size() < 3:
+		return false
+	if not rank_to_id.has(target_rank):
+		return false
+	
+	# Try any consecutive sequence length >= 3 that includes target_rank
+	var ranks: Array = rank_to_id.keys()
+	var ranks_set: Dictionary = {}
+	for r_any in ranks:
+		ranks_set[int(r_any)] = true
+	
+	for start_any in ranks:
+		var start = int(start_any)
+		
+		for L in range(3, ranks.size() + 1):
+			var cur = start
+			var ok = true
+			var contains = false
+			var ids: Array = []
+			
+			for i in range(L):
+				if not ranks_set.has(cur):
+					ok = false
+					break
+				if cur == target_rank:
+					contains = true
+				ids.append(String(rank_to_id[cur]))
+				cur = MeldRules.inc_rank(cur)
+			
+			if ok and contains:
+				var res = MeldRules.build_run_meld(ids, registry)
+				if bool(res.get("ok", false)):
+					return true
+	
+	return false
