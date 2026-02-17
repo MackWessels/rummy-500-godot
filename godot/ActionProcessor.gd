@@ -113,54 +113,66 @@ func _do_draw_stock(state: GameState, player: int) -> Dictionary:
 	out.events.append({"type":"DRAW_STOCK", "player":player, "card_id":card_id})
 	return out
 
-
 func _do_draw_discard_stack(state: GameState, player: int, action: Dictionary) -> Dictionary:
 	var out = {"ok": false, "reason": "", "events": [], "hand_ended": false, "went_out": false}
-	
+
 	if state.phase != PHASE_DRAW:
 		out.reason = "BAD_PHASE_NEED_DRAW"
 		return out
-	
+
 	if state.discard.is_empty():
 		out.reason = "DISCARD_EMPTY"
 		return out
-	
+
 	if not action.has("target_card_id"):
 		out.reason = "MISSING_target_card_id"
 		return out
-	
-	var target = String(action["target_card_id"])
-	var idx = state.discard.find(target)
+
+	var target := String(action["target_card_id"])
+	var idx := state.discard.find(target)
 	if idx == -1:
 		out.reason = "TARGET_NOT_IN_DISCARD"
 		return out
-	
+
 	# take target + all above it (toward top/back)
 	var taken: Array = []
 	for i in range(idx, state.discard.size()):
 		taken.append(String(state.discard[i]))
-	
+
 	var target_card = registry.get_card(target)
 	if target_card.is_empty():
 		out.reason = "UNKNOWN_CARD_ID"
 		return out
-	
+
+	# Reject if target cannot be played this turn (via layoff or new meld including target)
+	var temp_hand: Array = state.hands[player].duplicate()
+	temp_hand.append_array(taken) # include target + any cards above it (they can help form the meld)
+	if not _discard_target_playable_this_turn(state, target, temp_hand):
+		out.reason = "DISCARD_TARGET_NOT_PLAYABLE"
+		return out
+
 	# remove from discard
 	state.discard.resize(idx)
-	
+
 	# add to hand
 	for cid in taken:
 		state.hands[player].append(cid)
-	
+
 	# must-play rule
 	state.must_play_discard_target[player] = target
 	state.must_play_discard_pending[player] = true
-	
+
 	state.phase = PHASE_PLAY
-	
+
 	out.ok = true
-	out.events.append({"type":"DRAW_DISCARD_STACK", "player":player, "target_card_id":target, "taken":taken.duplicate()})
+	out.events.append({
+		"type":"DRAW_DISCARD_STACK",
+		"player":player,
+		"target_card_id":target,
+		"taken":taken.duplicate()
+	})
 	return out
+
 
 
 # -------------------------

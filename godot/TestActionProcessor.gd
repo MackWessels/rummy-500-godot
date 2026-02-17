@@ -14,7 +14,82 @@ func _ready() -> void:
 	
 	test_refill_stock_event_and_keep_top_discard()
 	
+	test_discard_stack_rejects_unplayable_target()
+	test_discard_stack_accepts_playable_target_via_new_meld()
+	
 	print("Done.")
+
+
+func test_discard_stack_rejects_unplayable_target() -> void:
+	print("\n--- test_discard_stack_rejects_unplayable_target ---")
+
+	registry = CardRegistry.new()
+	DeckBuilder.build_shoe(1, registry)
+	ap = ActionProcessor.new(registry, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123)
+
+	var state := GameState.new()
+	state.init_for_players(2)
+	state.turn_player = 0
+	state.phase = "DRAW"
+	state.melds = []
+	state.stock = []
+	state.discard = []
+	state.hands[0] = []
+	state.hands[1] = []
+
+	var aS = _cid(0, "S", 1)   # target
+	var c2C = _cid(0, "C", 2)  # hand filler (off suit)
+	var d9D = _cid(0, "D", 9)  # discard below target (off suit)
+
+	_expect(aS != "" and c2C != "" and d9D != "", "Found needed card IDs")
+
+	state.hands[0] = [c2C]
+	state.discard = [d9D, aS] # bottom->top, target is top
+
+	var before_discard = state.discard.duplicate()
+	var before_hand = state.hands[0].duplicate()
+
+	var r = ap.apply(state, 0, {"type":"DRAW_DISCARD_STACK", "target_card_id": aS})
+	print("apply result:", r)
+
+	_expect(not r.ok, "DRAW_DISCARD_STACK rejected when target unplayable")
+	_expect(r.reason == "DISCARD_TARGET_NOT_PLAYABLE", "Correct rejection reason")
+	_expect(state.discard == before_discard, "Discard unchanged on rejection")
+	_expect(state.hands[0] == before_hand, "Hand unchanged on rejection")
+	_expect(state.phase == "DRAW", "Phase remains DRAW on rejection")
+
+func test_discard_stack_accepts_playable_target_via_new_meld() -> void:
+	print("\n--- test_discard_stack_accepts_playable_target_via_new_meld ---")
+
+	registry = CardRegistry.new()
+	DeckBuilder.build_shoe(1, registry)
+	ap = ActionProcessor.new(registry, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123)
+
+	var state := GameState.new()
+	state.init_for_players(2)
+	state.turn_player = 0
+	state.phase = "DRAW"
+	state.melds = []
+	state.stock = []
+	state.discard = []
+	state.hands[0] = []
+	state.hands[1] = []
+
+	# Make target 6S playable by forming run 4S-5S-6S (using hand cards)
+	var c4S = _cid(0, "S", 4)
+	var c5S = _cid(0, "S", 5)
+	var c6S = _cid(0, "S", 6)
+	var filler = _cid(0, "C", 2)
+
+	state.hands[0] = [c4S, c5S, filler]
+	state.discard = [filler, c6S] # target is top
+
+	var r = ap.apply(state, 0, {"type":"DRAW_DISCARD_STACK", "target_card_id": c6S})
+	_expect(r.ok, "DRAW_DISCARD_STACK allowed when target playable")
+	_expect(state.phase == "PLAY", "Phase advanced to PLAY")
+	_expect(state.must_play_discard_pending[0] == true, "must_play pending set")
+	_expect(state.must_play_discard_target[0] == c6S, "must_play target set")
+
 
 func test_refill_stock_event_and_keep_top_discard() -> void:
 	print("\n--- test_refill_stock_event_and_keep_top_discard ---")
