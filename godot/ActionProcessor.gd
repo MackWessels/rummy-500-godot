@@ -25,13 +25,18 @@ var registry: CardRegistry
 var stock_empty_policy: int = StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP
 var rng = RandomNumberGenerator.new()
 
-func _init(_registry: CardRegistry, _policy: int = StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, seed: int = 0) -> void:
+func _init(
+	_registry: CardRegistry,
+	_policy: int = StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP,
+	rng_seed: int = 0
+) -> void:
 	registry = _registry
 	stock_empty_policy = _policy
-	if seed != 0:
-		rng.seed = seed
+	if rng_seed != 0:
+		rng.seed = rng_seed
 	else:
 		rng.randomize()
+
 
 # Returns:
 # {

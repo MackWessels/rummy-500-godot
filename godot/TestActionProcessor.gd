@@ -4,6 +4,8 @@ class_name TestActionProcessor
 var registry: CardRegistry
 var ap: ActionProcessor
 
+var _fails = 0
+
 func _ready() -> void:
 	print("TestActionProcessor _ready() fired")
 	test_discard_target_must_play_then_meld_and_layoffs()
@@ -17,7 +19,181 @@ func _ready() -> void:
 	test_discard_stack_rejects_unplayable_target()
 	test_discard_stack_accepts_playable_target_via_new_meld()
 	
-	print("Done.")
+	test_discard_stack_accepts_playable_target_via_layoff_to_set()
+	test_discard_stack_accepts_playable_target_via_layoff_to_run()
+	test_discard_stack_accepts_playable_target_only_due_to_taken_cards_above_target()
+	
+	
+	print("Done. fails=", _fails)
+	if _fails > 0:
+		push_error("%d expectations failed" % _fails)
+
+
+func test_discard_stack_accepts_playable_target_via_layoff_to_set() -> void:
+	print("\n--- test_discard_stack_accepts_playable_target_via_layoff_to_set ---")
+
+	registry = CardRegistry.new()
+	DeckBuilder.build_shoe(1, registry)
+	ap = ActionProcessor.new(registry, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123)
+
+	var state = GameState.new()
+	state.num_players = 2
+	state.init_for_players(2)
+	state.turn_player = 0
+	state.phase = "DRAW"
+
+	# Table has a SET of 7s (rank 7)
+	var c7C = _cid(0, "C", 7)
+	var c7D = _cid(0, "D", 7)
+	var c7H = _cid(0, "H", 7)
+	var c7S = _cid(0, "S", 7)
+
+	var c2C = _cid(0, "C", 2)
+	var cKH = _cid(0, "H", 13)
+
+	_expect(c7C != "" and c7D != "" and c7H != "" and c7S != "", "Found 7s")
+	_expect(c2C != "" and cKH != "", "Found filler cards")
+
+	state.melds = [
+		{"id": 0, "type": "SET", "cards": [c7C, c7D, c7H], "rank": 7, "owner": 1, "contrib": {c7C:1, c7D:1, c7H:1}}
+	]
+
+	# Player 0 has only a filler card (can’t make a new meld with 7S)
+	state.hands[0] = [c2C]
+	state.hands[1] = []
+
+	# Discard has target 7S + a card above it (which you must take too)
+	state.discard = [c2C, c7S, cKH] # bottom->top, target in middle
+	state.stock = [ _cid(0, "D", 12) ] # irrelevant, just non-empty
+
+	var _before_discard = state.discard.duplicate()
+	var r = ap.apply(state, 0, {"type":"DRAW_DISCARD_STACK", "target_card_id": c7S})
+	_expect(r.ok, "DRAW_DISCARD_STACK allowed because target is playable via layoff to SET")
+	_expect(state.phase == "PLAY", "Phase advanced to PLAY")
+	_expect(state.must_play_discard_pending[0], "must_play pending set")
+	_expect(state.must_play_discard_target[0] == c7S, "must_play target set")
+
+	# Must be able to satisfy must-play via layoff
+	r = ap.apply(state, 0, {"type":"LAYOFF", "meld_id": 0, "card_id": c7S})
+	_expect(r.ok, "LAYOFF target 7S onto SET ok")
+	_expect(not state.must_play_discard_pending[0], "must_play cleared after layoff")
+
+	# Discard ends turn (discard the “above” card we took)
+	r = ap.apply(state, 0, {"type":"DISCARD", "card_id": cKH})
+	_expect(r.ok, "DISCARD after satisfying must-play ok")
+	_expect(state.turn_player == 1, "Turn advanced")
+	_expect(state.phase == "DRAW", "Next player phase is DRAW")
+
+
+func test_discard_stack_accepts_playable_target_via_layoff_to_run() -> void:
+	print("\n--- test_discard_stack_accepts_playable_target_via_layoff_to_run ---")
+
+	registry = CardRegistry.new()
+	DeckBuilder.build_shoe(1, registry)
+	ap = ActionProcessor.new(registry, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123)
+
+	var state = GameState.new()
+	state.num_players = 2
+	state.init_for_players(2)
+	state.turn_player = 0
+	state.phase = "DRAW"
+
+	# Table has a RUN 3S-4S-5S; target 6S is playable via layoff RIGHT
+	var c3S = _cid(0, "S", 3)
+	var c4S = _cid(0, "S", 4)
+	var c5S = _cid(0, "S", 5)
+	var c6S = _cid(0, "S", 6)
+
+	var c9D = _cid(0, "D", 9)
+	var cKH = _cid(0, "H", 13)
+
+	_expect(c3S != "" and c4S != "" and c5S != "" and c6S != "", "Found run cards")
+	_expect(c9D != "" and cKH != "", "Found filler cards")
+
+	state.melds = [
+		{"id": 0, "type": "RUN", "cards": [c3S, c4S, c5S], "suit":"S", "ace_mode":"UNSET", "owner": 1, "contrib": {c3S:1, c4S:1, c5S:1}}
+	]
+
+	# Player 0 has only filler; can’t create new run/set with 6S
+	state.hands[0] = [c9D]
+	state.hands[1] = []
+
+	# Discard has target 6S + a card above
+	state.discard = [c9D, c6S, cKH]
+	state.stock = [ _cid(0, "D", 12) ]
+
+	var r = ap.apply(state, 0, {"type":"DRAW_DISCARD_STACK", "target_card_id": c6S})
+	_expect(r.ok, "DRAW_DISCARD_STACK allowed because target is playable via layoff to RUN")
+	_expect(state.phase == "PLAY", "Phase advanced to PLAY")
+	_expect(state.must_play_discard_pending[0], "must_play pending set")
+	_expect(state.must_play_discard_target[0] == c6S, "must_play target set")
+
+	# Satisfy must-play via layoff RIGHT
+	r = ap.apply(state, 0, {"type":"LAYOFF", "meld_id": 0, "card_id": c6S, "end":"RIGHT"})
+	_expect(r.ok, "LAYOFF target 6S onto RUN RIGHT ok")
+	_expect(not state.must_play_discard_pending[0], "must_play cleared after layoff")
+
+	# Discard ends turn (discard the “above” card we took)
+	r = ap.apply(state, 0, {"type":"DISCARD", "card_id": cKH})
+	_expect(r.ok, "DISCARD after satisfying must-play ok")
+	_expect(state.turn_player == 1, "Turn advanced")
+	_expect(state.phase == "DRAW", "Next player phase is DRAW")
+
+
+func test_discard_stack_accepts_playable_target_only_due_to_taken_cards_above_target() -> void:
+	print("\n--- test_discard_stack_accepts_playable_target_only_due_to_taken_cards_above_target ---")
+
+	registry = CardRegistry.new()
+	DeckBuilder.build_shoe(1, registry)
+	ap = ActionProcessor.new(registry, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123)
+
+	var state := GameState.new()
+	state.num_players = 2
+	state.init_for_players(2)
+	state.turn_player = 0
+	state.phase = "DRAW"
+
+	# No melds on table, so layoff is impossible.
+	state.melds = []
+
+	# Target 5S is NOT playable with player’s starting hand,
+	# but becomes playable because the cards ABOVE it (3S,4S) are taken too.
+	var c2C = _cid(0, "C", 2)
+	var c9D = _cid(0, "D", 9)
+	var cQD = _cid(0, "D", 12) # extra filler so we don't go out
+	var c3S = _cid(0, "S", 3)
+	var c4S = _cid(0, "S", 4)
+	var c5S = _cid(0, "S", 5)
+
+	_expect(c2C != "" and c9D != "" and cQD != "", "Found filler cards")
+	_expect(c3S != "" and c4S != "" and c5S != "", "Found spade run cards 3-5")
+
+	# IMPORTANT: two fillers so discarding one doesn't go out
+	state.hands[0] = [c9D, cQD]
+	state.hands[1] = []
+
+	# Discard bottom->top: keep 2C below target, then target 5S, then 3S and 4S above it.
+	state.discard = [c2C, c5S, c3S, c4S] # top = 4S
+	state.stock = [ _cid(0, "H", 8) ] # doesn't matter; just keep it non-empty if you want
+
+	var r = ap.apply(state, 0, {"type":"DRAW_DISCARD_STACK", "target_card_id": c5S})
+	_expect(r.ok, "DRAW_DISCARD_STACK allowed because target becomes playable due to taken-above cards")
+	_expect(state.phase == "PLAY", "Phase advanced to PLAY")
+	_expect(state.must_play_discard_pending[0], "must_play pending set")
+	_expect(state.must_play_discard_target[0] == c5S, "must_play target set")
+	_expect(state.discard.size() == 1 and state.discard[0] == c2C, "Discard below target preserved")
+
+	# Must-play can be satisfied by creating a RUN using the taken cards (3S-4S-5S includes target)
+	r = ap.apply(state, 0, {"type":"CREATE_MELD", "meld_kind":"RUN", "card_ids":[c3S, c4S, c5S]})
+	_expect(r.ok, "CREATE_MELD run using taken cards ok (includes target)")
+	_expect(not state.must_play_discard_pending[0], "must_play cleared after playing target in meld")
+
+	# Discard ends turn (discard ONE filler; we still have another filler left)
+	r = ap.apply(state, 0, {"type":"DISCARD", "card_id": c9D})
+	_expect(r.ok, "DISCARD after satisfying must-play ok")
+	_expect(state.hand_over == false, "Hand not over (didn't go out)")
+	_expect(state.turn_player == 1, "Turn advanced")
+	_expect(state.phase == "DRAW", "Next player phase is DRAW")
 
 
 func test_discard_stack_rejects_unplayable_target() -> void:
@@ -542,4 +718,5 @@ func _expect(cond: bool, label: String) -> void:
 	if cond:
 		print("OK:", label)
 	else:
-		push_error("FAIL: %s" % label)
+		_fails += 1
+		printerr("FAIL:", label)
