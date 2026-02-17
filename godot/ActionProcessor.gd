@@ -128,8 +128,8 @@ func _do_draw_discard_stack(state: GameState, player: int, action: Dictionary) -
 		out.reason = "MISSING_target_card_id"
 		return out
 
-	var target := String(action["target_card_id"])
-	var idx := state.discard.find(target)
+	var target = String(action["target_card_id"])
+	var idx = state.discard.find(target)
 	if idx == -1:
 		out.reason = "TARGET_NOT_IN_DISCARD"
 		return out
