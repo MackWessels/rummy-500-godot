@@ -1,7 +1,11 @@
 extends RefCounted
 class_name RulesConfig
 
-const STOCK_EMPTY_SHUFFLE_EXCEPT_TOP := "RESHUFFLE_EXCEPT_TOP" 
-const STOCK_EMPTY_END_HAND := "END_HAND"                   
+# custom rules
+var allow_wrap_runs: bool = true
+var allow_duplicate_suits_in_set: bool = true
 
-var stock_empty_policy: String = STOCK_EMPTY_SHUFFLE_EXCEPT_TOP
+# Scoring
+var ace_run_high_requires_qk: bool = true
+var ace_low_points: int = 1
+var ace_high_points: int = 15
