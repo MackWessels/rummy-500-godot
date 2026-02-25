@@ -19,12 +19,37 @@ static func dec_rank(r: int) -> int:
 
 # SET 
 
+static func build_set_meld(card_ids: Array, registry: CardRegistry, allow_duplicate_suits_in_set: bool = true) -> Dictionary:
+	if card_ids.size() < 3:
+		return {"ok": false, "reason": "SET needs 3+ cards"}
+	
+	var first = registry.get_card(card_ids[0])
+	var rank = int(first["rank"])
+	
+	var suits = {}
+	for cid in card_ids:
+		var c = registry.get_card(cid)
+		if int(c["rank"]) != rank:
+			return {"ok": false, "reason": "SET ranks must match"}
+		
+		var s = String(c["suit"])
+		if not allow_duplicate_suits_in_set and suits.has(s):
+			return {"ok": false, "reason": "SET_DUPLICATE_SUIT_NOT_ALLOWED"}
+		suits[s] = true
+	
+	return {
+		"ok": true,
+		"type": "SET",
+		"rank": rank,
+		"card_ids": card_ids.duplicate()
+	}
+
 static func is_valid_set(card_ids: Array, registry: CardRegistry) -> bool:
 	if card_ids.size() < 3:
 		return false
-
-	var rank := int(registry.get_card(String(card_ids[0]))["rank"])
-
+	
+	var rank = int(registry.get_card(String(card_ids[0]))["rank"])
+	
 	for cid in card_ids:
 		var c = registry.get_card(String(cid))
 		if c.is_empty():
