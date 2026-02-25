@@ -12,6 +12,8 @@ const MELD_SET = "SET"
 const MELD_RUN = "RUN"
 const END_LEFT = "LEFT"
 const END_RIGHT = "RIGHT"
+var rules: RulesConfig
+
 
 enum StockEmptyPolicy {
 	RESHUFFLE_EXCEPT_TOP,
@@ -28,15 +30,18 @@ var rng = RandomNumberGenerator.new()
 func _init(
 	_registry: CardRegistry,
 	_policy: int = StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP,
-	rng_seed: int = 0
+	rng_seed: int = 0,
+	_rules: RulesConfig = null
 ) -> void:
 	registry = _registry
 	stock_empty_policy = _policy
+	
+	rules = _rules if _rules != null else RulesConfig.new()
+	
 	if rng_seed != 0:
 		rng.seed = rng_seed
 	else:
 		rng.randomize()
-
 
 # Returns:
 # {
@@ -271,8 +276,13 @@ func _do_layoff(state: GameState, player: int, action: Dictionary) -> Dictionary
 		out.reason = "MELD_NOT_FOUND"
 		return out
 	
-	var meld = state.melds[meld_idx]
-	var mtype = String(meld.get("type",""))
+	var meld: Dictionary = state.melds[meld_idx]
+	var mtype = String(meld.get("type", ""))
+	
+	# Safe default if rules isn't wired yet
+	var allow_dup_suits_in_set := true
+	if rules != null:
+		allow_dup_suits_in_set = bool(rules.allow_duplicate_suits_in_set)
 	
 	if mtype == MELD_SET:
 		var set_rank = int(meld.get("rank", 0))
@@ -283,6 +293,16 @@ func _do_layoff(state: GameState, player: int, action: Dictionary) -> Dictionary
 		if int(c["rank"]) != set_rank:
 			out.reason = "SET_LAYOFF_WRONG_RANK"
 			return out
+		
+		# Enforce "no duplicate suit in the same set" if toggle is off
+		if not allow_dup_suits_in_set:
+			var new_suit = String(c["suit"])
+			for existing_any in Array(meld.get("cards", [])):
+				var existing_id = String(existing_any)
+				var ec = registry.get_card(existing_id)
+				if not ec.is_empty() and String(ec["suit"]) == new_suit:
+					out.reason = "SET_DUPLICATE_SUIT_NOT_ALLOWED"
+					return out
 		
 		meld["cards"].append(card_id)
 		_sort_set_cards_in_place(meld["cards"])
@@ -303,7 +323,7 @@ func _do_layoff(state: GameState, player: int, action: Dictionary) -> Dictionary
 			out.reason = "BAD_end"
 			return out
 		
-		# validate via your MeldRules.can_extend_run_end()
+		# validate via MeldRules.can_extend_run_end()
 		var check = MeldRules.can_extend_run_end(meld, card_id, end, registry)
 		if not check["ok"]:
 			out.reason = String(check.get("reason", "RUN_LAYOFF_INVALID"))
@@ -316,12 +336,14 @@ func _do_layoff(state: GameState, player: int, action: Dictionary) -> Dictionary
 			meld["cards"].append(card_id)
 		
 		meld["ace_mode"] = String(check.get("new_ace_mode", meld.get("ace_mode", MeldRules.ACE_UNSET)))
+		
 		# Record contribution for scoring
 		if not meld.has("contrib") or typeof(meld["contrib"]) != TYPE_DICTIONARY:
 			meld["contrib"] = {}
 		meld["contrib"][card_id] = player
 		
 		_remove_cards_from_hand(state.hands[player], [card_id])
+	
 	else:
 		out.reason = "MELD_TYPE_UNKNOWN"
 		return out
@@ -335,7 +357,13 @@ func _do_layoff(state: GameState, player: int, action: Dictionary) -> Dictionary
 	state.melds[meld_idx] = meld
 	
 	out.ok = true
-	out.events.append({"type":"LAYOFF", "player":player, "meld_id":meld_id, "card_id":card_id, "meld":meld.duplicate(true)})
+	out.events.append({
+		"type": "LAYOFF",
+		"player": player,
+		"meld_id": meld_id,
+		"card_id": card_id,
+		"meld": meld.duplicate(true)
+	})
 	return out
 
 
@@ -393,11 +421,13 @@ func _do_discard(state: GameState, player: int, action: Dictionary) -> Dictionar
 
 func _build_meld(meld_kind: String, card_ids: Array) -> Dictionary:
 	if meld_kind == MELD_SET:
-		if not MeldRules.is_valid_set(card_ids, registry):
-			return {"ok": false, "reason": "SET_INVALID"}
+		var chk = _validate_set(card_ids)
+		if not chk["ok"]:
+			return {"ok": false, "reason": String(chk["reason"])}
+		
 		var ordered = card_ids.duplicate()
 		_sort_set_cards_in_place(ordered)
-		return {"ok": true, "rank": MeldRules.get_set_rank(card_ids, registry), "ordered_card_ids": ordered}
+		return {"ok": true, "rank": int(chk["rank"]), "ordered_card_ids": ordered}
 	
 	if meld_kind == MELD_RUN:
 		var res = MeldRules.build_run_meld(card_ids, registry)
@@ -406,6 +436,32 @@ func _build_meld(meld_kind: String, card_ids: Array) -> Dictionary:
 		return res
 	
 	return {"ok": false, "reason": "BAD_meld_kind"}
+
+func _validate_set(card_ids: Array) -> Dictionary:
+	if card_ids.size() < 3:
+		return {"ok": false, "reason": "SET_NEEDS_3_PLUS"}
+	
+	var first = registry.get_card(String(card_ids[0]))
+	if first.is_empty():
+		return {"ok": false, "reason": "UNKNOWN_CARD_ID"}
+	var rank = int(first["rank"])
+	
+	var suits_seen = {}
+	for cid_any in card_ids:
+		var cid = String(cid_any)
+		var c = registry.get_card(cid)
+		if c.is_empty():
+			return {"ok": false, "reason": "UNKNOWN_CARD_ID"}
+		if int(c["rank"]) != rank:
+			return {"ok": false, "reason": "SET_INVALID"}
+		
+		if not rules.allow_duplicate_suits_in_set:
+			var s = String(c["suit"])
+			if suits_seen.has(s):
+				return {"ok": false, "reason": "SET_DUPLICATE_SUIT_NOT_ALLOWED"}
+			suits_seen[s] = true
+	
+	return {"ok": true, "rank": rank}
 
 
 func _sort_set_cards_in_place(card_ids: Array) -> void:
@@ -478,7 +534,7 @@ func _ensure_must_play_arrays(state: GameState) -> void:
 func _end_hand(state: GameState, reason: String) -> void:
 	state.hand_over = true
 	state.hand_end_reason = reason
-	HandResolver.resolve_hand(state, registry)
+	HandResolver.resolve_hand(state, registry, rules)
 
 func _hand_contains_all(hand: Array, needed: Array) -> bool:
 	# multiplicity-aware
@@ -543,7 +599,20 @@ func _can_layoff_target_to_any_meld(state: GameState, target_card_id: String) ->
 		if mtype == MELD_SET:
 			var set_rank = int(meld.get("rank", 0))
 			if set_rank == target_rank:
-				return true
+				if rules.allow_duplicate_suits_in_set:
+					return true
+				
+				var tsuit := String(tc["suit"])
+				var already_has := false
+				for cid_any in Array(meld.get("cards", [])):
+					var cid := String(cid_any)
+					var c2 := registry.get_card(cid)
+					if not c2.is_empty() and String(c2["suit"]) == tsuit:
+						already_has = true
+						break
+				
+				if not already_has:
+					return true
 		
 		elif mtype == MELD_RUN:
 			var check_l = MeldRules.can_extend_run_end(meld, target_card_id, END_LEFT, registry)
@@ -560,18 +629,32 @@ func _can_create_set_with_target(temp_hand: Array, target_card_id: String) -> bo
 	var tc = registry.get_card(target_card_id)
 	if tc.is_empty():
 		return false
-	var target_rank = int(tc["rank"])
 	
-	var count = 0
+	var target_rank = int(tc["rank"])
+	var target_suit = String(tc["suit"])
+	
+	var count = 1
+	var suits_used = { target_suit: true }
+	
 	for cid_any in temp_hand:
 		var cid = String(cid_any)
+		if cid == target_card_id:
+			continue
+		
 		var c = registry.get_card(cid)
 		if c.is_empty():
 			continue
-		if int(c["rank"]) == target_rank:
-			count += 1
-			if count >= 3:
-				return true
+		if int(c["rank"]) != target_rank:
+			continue
+		
+		var s = String(c["suit"])
+		if not rules.allow_duplicate_suits_in_set and suits_used.has(s):
+			continue
+		
+		suits_used[s] = true
+		count += 1
+		if count >= 3:
+			return true
 	
 	return false
 
