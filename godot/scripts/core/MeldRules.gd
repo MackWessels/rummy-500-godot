@@ -5,8 +5,8 @@ const TYPE_SET = "SET"
 const TYPE_RUN = "RUN"
 
 const ACE_UNSET = "UNSET" # run currently has no Ace
-const ACE_LOW   = "LOW"   # Ace first entered as low (A next to 2), OR Ace existed but no Q-K-A subset at the moment it first appeared
-const ACE_HIGH  = "HIGH"  # Ace first entered as high by forming a Q-K-A subset (either created as Q-K-A, or Ace added onto a run ending in K)
+const ACE_LOW   = "LOW"   # Ace entered as low (A next to 2), OR Ace present but no Q-K-A subset at first appearance
+const ACE_HIGH  = "HIGH"  # Ace entered as high by forming a Q-K-A subset
 
 static func inc_rank(r: int) -> int:
 	return (r % 13) + 1
@@ -17,7 +17,9 @@ static func dec_rank(r: int) -> int:
 	else:
 		return r - 1
 
-# SET 
+# -------------------------
+# SET
+# -------------------------
 
 static func build_set_meld(card_ids: Array, registry: CardRegistry, allow_duplicate_suits_in_set: bool = true) -> Dictionary:
 	if card_ids.size() < 3:
@@ -62,10 +64,10 @@ static func is_valid_set(card_ids: Array, registry: CardRegistry) -> bool:
 static func get_set_rank(card_ids: Array, registry: CardRegistry) -> int:
 	return int(registry.get_card(card_ids[0])["rank"])
 
-# RUN 
 
-static func _contains_ranks(ranks: Array, a: int, b: int, c: int) -> bool:
-	return ranks.has(a) and ranks.has(b) and ranks.has(c)
+# -------------------------
+# RUN
+# -------------------------
 
 static func _infer_ace_mode_from_ranks(ranks_present: Array) -> String:
 	# If Ace is present, HIGH only if the run contains the Q-K-A subset.
@@ -96,7 +98,6 @@ static func _lex_less(a: Array, b: Array) -> bool:
 			return false
 	return a.size() < b.size()
 
-
 static func _candidate_sequences(ranks_set: Dictionary) -> Array:
 	var ranks: Array = ranks_set.keys()
 	var n = ranks.size()
@@ -111,20 +112,25 @@ static func _candidate_sequences(ranks_set: Dictionary) -> Array:
 				ok = false
 				break
 			seq.append(cur)
-			cur = inc_rank(cur)
+			cur = inc_rank(cur) # wrap behavior lives here
 		if ok:
 			candidates.append(seq)
 	return candidates
 
-static func build_run_meld(card_ids: Array, registry: CardRegistry) -> Dictionary:
+static func _wrap_bridge_present(ranks_set: Dictionary) -> bool:
+	# The only "wrap" we want to optionally disable is the K-A-2 bridge.
+	# This preserves A-2-3 and Q-K-A even when wrap is disabled.
+	return ranks_set.has(13) and ranks_set.has(1) and ranks_set.has(2)
+
+static func build_run_meld(card_ids: Array, registry: CardRegistry, allow_wrap_runs: bool = true) -> Dictionary:
 	# Returns:
 	# {"ok":bool, "reason":String, "suit":String, "ace_mode":String, "ordered_card_ids":Array}
-	# 
+	#
 	# - 3+ same suit
-	# - wrap allowed
+	# - wrap allowed if allow_wrap_runs
 	# - deterministic order chosen from valid rotations
-	# - ace_mode is UNSET unless an Ace is present
-	# - if Ace is present on creation: HIGH only if Q-K-A subset exists; otherwise LOW
+	# - ace_mode UNSET unless Ace present
+	# - if Ace present on creation: HIGH only if Q-K-A subset exists; otherwise LOW
 	if card_ids.size() < 3:
 		return {"ok": false, "reason": "RUN needs 3+ cards"}
 
@@ -155,9 +161,12 @@ static func build_run_meld(card_ids: Array, registry: CardRegistry) -> Dictionar
 	for r in ranks:
 		ranks_set[int(r)] = true
 
+	if not allow_wrap_runs and _wrap_bridge_present(ranks_set):
+		return {"ok": false, "reason": "WRAP_RUNS_DISABLED"}
+
 	var candidates = _candidate_sequences(ranks_set)
 	if candidates.is_empty():
-		return {"ok": false, "reason": "RUN ranks are not consecutive (wrap allowed)"}
+		return {"ok": false, "reason": "RUN ranks are not consecutive"}
 
 	var ace_mode = _infer_ace_mode_from_ranks(ranks)
 
@@ -183,17 +192,15 @@ static func build_run_meld(card_ids: Array, registry: CardRegistry) -> Dictionar
 		"ordered_card_ids": ordered_card_ids
 	}
 
-static func can_extend_run_end(run_meld: Dictionary, card_id: String, end: String, registry: CardRegistry) -> Dictionary:
+static func can_extend_run_end(run_meld: Dictionary, card_id: String, end: String, registry: CardRegistry, allow_wrap_runs: bool = true) -> Dictionary:
 	# Returns {"ok":bool, "reason":String, "new_ace_mode":String}
 	#
 	# Run extension rules:
 	# - Only add to LEFT or RIGHT end
-	# - Must be exactly consecutive (wrap allowed)
+	# - Must be exactly consecutive (wrap behavior exists in inc/dec_rank)
 	# - No duplicate rank in a run
-	# - ace_mode locks the moment an Ace first enters a run:
-	#     HIGH if Ace is added onto the K end (...Q-K + A), which forms a Q-K-A subset
-	#     LOW  if Ace is added onto the 2 end (A + 2-3...)
-	# - After locking, ace_mode never changes and does NOT restrict future wrap extensions.
+	# - ace_mode locks the moment an Ace first enters a run
+	# - When allow_wrap_runs is false, disallow creating the K-A-2 bridge.
 	if String(run_meld.get("type", "")) != TYPE_RUN:
 		return {"ok": false, "reason": "Not a run"}
 
@@ -243,6 +250,15 @@ static func can_extend_run_end(run_meld: Dictionary, card_id: String, end: Strin
 			return {"ok": false, "reason": "Card does not extend right end"}
 	else:
 		return {"ok": false, "reason": "Invalid end (LEFT/RIGHT)"}
+
+	# Enforce wrap toggle: reject if this addition creates the K-A-2 bridge.
+	if not allow_wrap_runs:
+		var ranks_set: Dictionary = {}
+		for rr in ranks_present:
+			ranks_set[int(rr)] = true
+		ranks_set[int(new_rank)] = true
+		if _wrap_bridge_present(ranks_set):
+			return {"ok": false, "reason": "WRAP_RUNS_DISABLED"}
 
 	# Lock behavior when Ace first enters a run (ace_mode == UNSET implies no Ace yet)
 	var new_ace_mode = ace_mode
