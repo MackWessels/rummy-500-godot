@@ -5,20 +5,22 @@ var fails := 0
 
 func _ready() -> void:
 	print("TestFullHandSimulation _ready() fired")
+	_test_wrap_runs_toggle_blocks_k_a_2() # <--- add this
 	_test_full_hand_deterministic()
 	_test_matchstate_accum_optional()
 	print("Done. fails=%s" % fails)
 
+
 # -----------------------------
 # Assertions
 # -----------------------------
-
 func _ok(cond: bool, msg: String) -> void:
 	if cond:
 		print("OK:%s" % msg)
 	else:
 		fails += 1
-		push_error("FAIL:%s" % msg)
+		printerr("FAIL:%s" % msg)      # <-- shows in Output
+		push_error("FAIL:%s" % msg)    # <-- still shows in Errors panel
 
 func _eq(a, b, msg: String) -> void:
 	_ok(a == b, "%s (got=%s expected=%s)" % [msg, str(a), str(b)])
@@ -216,3 +218,28 @@ func _test_matchstate_accum_optional() -> void:
 	_eq(ms.total_scores[0], 580, "totals after hand2 p0")
 	_eq(ms.total_scores[1], -25, "totals after hand2 p1")
 	_eq(ms.winner, 0, "winner is p0 (>=500)")
+
+func _test_wrap_runs_toggle_blocks_k_a_2() -> void:
+	print("\n--- test_wrap_runs_toggle_blocks_k_a_2 ---")
+
+	var reg := CardRegistry.new()
+	DeckBuilder.build_shoe(1, reg)
+
+	var rules := RulesConfig.new()
+	rules.allow_wrap_runs = false
+
+	var ap := ActionProcessor.new(reg, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 1, rules)
+
+	var st := GameState.new()
+	st.init_for_players(2)
+	st.turn_player = 0
+	st.phase = "PLAY"
+
+	var kS := _pick(reg, 0, "S", 13)
+	var aS := _pick(reg, 0, "S", 1)
+	var s2 := _pick(reg, 0, "S", 2)
+
+	st.hands[0] = [kS, aS, s2]
+
+	var res := ap.apply(st, 0, {"type":"CREATE_MELD", "meld_kind":"RUN", "card_ids":[kS, aS, s2]})
+	_eq(bool(res.get("ok", false)), false, "K-A-2 rejected when allow_wrap_runs=false")
