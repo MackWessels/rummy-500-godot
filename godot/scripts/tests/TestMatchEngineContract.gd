@@ -1,9 +1,10 @@
 extends Node
 class_name TestMatchEngineContract
 
+const Invariants := preload("res://scripts/core/RummyInvariants.gd")
+
 var fails := 0
 var fail_msgs: Array[String] = []
-
 
 func _ready() -> void:
 	print("TestMatchEngineContract _ready() fired")
@@ -37,7 +38,7 @@ func _eq(a, b, msg: String) -> void:
 	_ok(a == b, "%s (got=%s expected=%s)" % [msg, str(a), str(b)])
 
 func _has_key(d: Dictionary, k: String, msg: String) -> void:
-	_ok(d.has(k), "%s (missing key=%s)" % [msg, k])
+	_ok(d.has(k), msg)
 
 func _is_dict(v, msg: String) -> void:
 	_ok(typeof(v) == TYPE_DICTIONARY, "%s (type=%s)" % [msg, str(typeof(v))])
@@ -77,6 +78,12 @@ func _assert_apply_contract(res: Dictionary, label: String) -> void:
 	_is_int(res.get("state_version", -1), label + " state_version is int")
 	_is_dict(res.get("state_public", {}), label + " state_public is Dictionary")
 
+func _assert_invariants_ok(engine: MatchEngine, label: String) -> void:
+	var v := Invariants.validate(engine.state, engine.registry, engine.rules)
+	if not bool(v.get("ok", false)):
+		_ok(false, label + " invariants failed:\n - " + "\n - ".join(Array(v.get("errors", []))))
+	else:
+		print("OK:" + label + " invariants ok")
 # -----------------------------
 # Tests
 # -----------------------------
@@ -85,10 +92,10 @@ func _test_apply_contract_keys_and_version() -> void:
 	print("\n--- test_apply_contract_keys_and_version ---")
 
 	var rules := RulesConfig.new()
-	var engine = MatchEngine.new(2, 500, 0, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123, rules)
+	var engine := MatchEngine.new(2, 500, 0, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 123, rules)
 
 	# get_state_public contract
-	var snap = engine.get_state_public(0, true)
+	var snap := engine.get_state_public(0, true)
 	_has_key(snap, "state_version", "get_state_public has state_version")
 	_has_key(snap, "state_public", "get_state_public has state_public")
 	_is_int(snap.get("state_version", -1), "get_state_public state_version is int")
@@ -104,8 +111,7 @@ func _test_apply_contract_keys_and_version() -> void:
 
 	var v0 := int(snap["state_version"])
 	var p := int(stp["turn_player"])
-	var phase0 := String(stp["phase"])
-	_eq(phase0, "DRAW", "new hand starts in DRAW phase")
+	_eq(String(stp["phase"]), "DRAW", "new hand starts in DRAW phase")
 
 	# Apply a normal action
 	var res := engine.apply(p, {"type":"DRAW_STOCK"})
@@ -116,6 +122,7 @@ func _test_apply_contract_keys_and_version() -> void:
 		_eq(v1, v0 + 1, "state_version increments on ok=true")
 		var sp1: Dictionary = res["state_public"]
 		_eq(String(sp1.get("phase", "")), "PLAY", "after DRAW_STOCK phase becomes PLAY")
+		_assert_invariants_ok(engine, "after DRAW_STOCK")
 	else:
 		_eq(v1, v0, "state_version unchanged on ok=false (DRAW_STOCK)")
 
@@ -159,11 +166,10 @@ func _test_rules_propagate_through_matchengine_wrap_disabled() -> void:
 
 	var engine := MatchEngine.new(2, 500, 0, ActionProcessor.StockEmptyPolicy.RESHUFFLE_EXCEPT_TOP, 1, rules)
 
-	# Build deterministic situation by overriding the current hand for this test.
+	# Deterministic situation: override the current hand
 	var kS := _pick(engine.registry, 0, "S", 13)
 	var aS := _pick(engine.registry, 0, "S", 1)
 	var s2 := _pick(engine.registry, 0, "S", 2)
-
 	_ok(kS != "" and aS != "" and s2 != "", "picked K/A/2 spades for wrap test")
 
 	engine.state.phase = "PLAY"
@@ -180,8 +186,9 @@ func _test_rules_propagate_through_matchengine_wrap_disabled() -> void:
 	engine.state.hand_end_reason = ""
 	engine.state.went_out_player = -1
 
-	var v0 := engine.state_version
+	_assert_invariants_ok(engine, "before wrap-disabled CREATE_MELD")
 
+	var v0 := engine.state_version
 	var res := engine.apply(0, {"type":"CREATE_MELD", "meld_kind":"RUN", "card_ids":[kS, aS, s2]})
 	_assert_apply_contract(res, "apply(CREATE_MELD K-A-2)")
 
