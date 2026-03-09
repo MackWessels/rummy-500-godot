@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3 uid="uid://c32iky0s8fplo"]
+
+[ext_resource type="Script" uid="uid://dsjar2i7tfyus" path="res://scripts/tests/TestFullHandSimulation.gd" id="1_lajr1"]
+
+[node name="RummyDebugTable" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+script = ExtResource("1_lajr1")

@@ -11,6 +11,8 @@ var state_version: int = 0
 
 var debug_validate_invariants: bool = false
 
+const Invariants := preload("res://scripts/core/RummyInvariants.gd")
+
 func _init(
 	num_players: int,
 	target_score: int = 500,
@@ -29,9 +31,8 @@ func _init(
 	
 	state_version = 1
 
-const Invariants := preload("res://scripts/core/RummyInvariants.gd")
 
-func apply(player: int, action: Dictionary) -> Dictionary:
+func apply(player: int, action: Dictionary, reveal_all: bool = true) -> Dictionary:
 	var res: Dictionary = ap.apply(state, player, action)
 	
 	if bool(res.get("ok", false)):
@@ -40,7 +41,12 @@ func apply(player: int, action: Dictionary) -> Dictionary:
 		if debug_validate_invariants:
 			var v := Invariants.validate(state, registry, rules)
 			if not bool(v.get("ok", false)):
-				push_error("INVARIANTS FAILED after action " + String(action.get("type","")) + ":\n - " + "\n - ".join(Array(v.get("errors", []))))
+				push_error(
+					"INVARIANTS FAILED after action " +
+					String(action.get("type", "")) +
+					":\n - " +
+					"\n - ".join(Array(v.get("errors", [])))
+				)
 	
 	if state.hand_over and state.hand_scored:
 		var fin: Dictionary = match_state.finalize_hand(state)
@@ -57,8 +63,9 @@ func apply(player: int, action: Dictionary) -> Dictionary:
 			res["new_hand_started"] = false
 	
 	res["state_version"] = state_version
-	res["state_public"] = state.to_public(player, true)
+	res["state_public"] = state.to_public(player, reveal_all)
 	return res
+
 
 func get_state_public(player: int, reveal_all: bool = true) -> Dictionary:
 	return {
