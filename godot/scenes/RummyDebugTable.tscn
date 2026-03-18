@@ -1,11 +1,11 @@
 [gd_scene load_steps=2 format=3 uid="uid://c32iky0s8fplo"]
 
-[ext_resource type="Script" uid="uid://dsjar2i7tfyus" path="res://scripts/tests/TestFullHandSimulation.gd" id="1_lajr1"]
+[ext_resource type="Script" uid="uid://dsjar2i7tfyus" path="res://scripts/tests/TestFullHandSimulation.gd" id="1_ag7tf"]
 
 [node name="RummyDebugTable" type="Control"]
 layout_mode = 3
 anchors_preset = 0
-script = ExtResource("1_lajr1")
+script = ExtResource("1_ag7tf")
 
 [node name="MarginContainer" type="MarginContainer" parent="."]
 layout_mode = 0
@@ -16,6 +16,7 @@ offset_bottom = 40.0
 layout_mode = 2
 
 [node name="TopBar" type="PanelContainer" parent="MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 40)
 layout_mode = 2
 
 [node name="HBoxContainer" type="HBoxContainer" parent="MarginContainer/VBoxContainer/TopBar"]
