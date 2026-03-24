@@ -19,7 +19,7 @@ static func card_points(card_id: String, registry: CardRegistry) -> int:
 static func deadwood_points(hand: Array, registry: CardRegistry) -> int:
 	var total = 0
 	for cid in hand:
-		total += card_points(String(cid), registry)
+		total += card_points(str(cid), registry)
 	return total
 
 
@@ -29,7 +29,7 @@ static func _rules_has(rules: Object, prop: String) -> bool:
 	if rules == null:
 		return false
 	for p in rules.get_property_list():
-		if String(p.name) == prop:
+		if str(p.name) == prop:
 			return true
 	return false
 
@@ -40,12 +40,17 @@ static func _rules_get(rules: Object, prop: String, default_val):
 		return rules.get(prop)
 	return default_val
 
+static func _meld_entry_card_id(raw_card) -> String:
+	if raw_card is Dictionary:
+		return str(raw_card.get("card_id", raw_card.get("id", "")))
+	return str(raw_card)
+
 static func _run_has_qk(meld: Dictionary, registry: CardRegistry) -> bool:
 	var has_q := false
 	var has_k := false
 	var cards: Array = meld.get("cards", [])
-	for cid_any in cards:
-		var cid := String(cid_any)
+	for raw_card in cards:
+		var cid := _meld_entry_card_id(raw_card)
 		var c := registry.get_card(cid)
 		if c.is_empty():
 			continue
@@ -65,14 +70,12 @@ static func _table_card_points(card_id: String, meld: Dictionary, registry: Card
 
 	var r := int(c["rank"])
 	if r != 1:
-		return card_points(card_id, registry) # same as before for non-aces
+		return card_points(card_id, registry)
 
-	# Ace:
-	var meld_type := String(meld.get("type", ""))
+	var meld_type := str(meld.get("type", ""))
 	if meld_type != "RUN":
 		return _rules_get(rules, "ace_high_points", 15)
 
-	# Ace on a RUN:
 	var ace_high := int(_rules_get(rules, "ace_high_points", 15))
 	var ace_low := int(_rules_get(rules, "ace_low_points", 1))
 	var requires_qk := bool(_rules_get(rules, "ace_run_high_requires_qk", true))
@@ -110,8 +113,8 @@ static func resolve_hand(state: GameState, registry: CardRegistry, rules: Object
 		var contrib = meld.get("contrib", {})
 		var cards: Array = meld.get("cards", [])
 
-		for cid_any in cards:
-			var cid = String(cid_any)
+		for raw_card in cards:
+			var cid := _meld_entry_card_id(raw_card)
 			var p = owner
 			if typeof(contrib) == TYPE_DICTIONARY and contrib.has(cid):
 				p = int(contrib[cid])
